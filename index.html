@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Disposable Camera</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: #1a1a1a;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      height: 100vh;
+      overflow: hidden;
+    }
+    .header {
+      width: 100%;
+      padding: 16px;
+      text-align: center;
+      background: #262626;
+      border-bottom: 2px solid #333;
+    }
+    .header h1 { font-size: 1.2rem; text-transform: uppercase; letter-spacing: 1px; color: #ff9900; }
+    .counter { font-size: 0.9rem; margin-top: 4px; color: #aaa; }
+    
+    .viewfinder-container {
+      position: relative;
+      width: 90vw;
+      max-width: 400px;
+      height: 60vh;
+      background: #000;
+      border: 4px solid #ff9900;
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    video { width: 100%; height: 100%; object-fit: cover; }
+    
+    .flash-overlay {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: white;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.1s ease-out;
+    }
+
+    .controls {
+      width: 100%;
+      padding: 24px;
+      background: #262626;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    .shutter-btn {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background-color: #ff9900;
+      border: 4px solid #fff;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(255, 153, 0, 0.4);
+      outline: none;
+    }
+    .shutter-btn:active { transform: scale(0.92); }
+    .shutter-btn:disabled { background-color: #555; border-color: #888; box-shadow: none; }
+    
+    .status-msg {
+      position: absolute;
+      bottom: 12px;
+      background: rgba(0,0,0,0.7);
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>Disposable Camera</h1>
+    <div class="counter" id="counter">Sisa Foto: 36</div>
+  </div>
+
+  <div class="viewfinder-container">
+    <video id="webcam" autoplay playsinline muted></video>
+    <div class="flash-overlay" id="flash"></div>
+    <div class="status-msg" id="statusMsg">Memuat kamera...</div>
+  </div>
+
+  <div class="controls">
+    <button class="shutter-btn" id="shutterBtn" onclick="takePhoto()"></button>
+  </div>
+
+  <canvas id="canvas" style="display:none;"></canvas>
+
+  <script>
+    // TEMPELKAN URL WEB APP GOOGLE APPS SCRIPT ANDA DI SINI
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbxxO-y3S6RPEmPBcWItpQ4L52FvPSSkNs9SscbUghYW5u7vGiuIjM522E_I58GfaH9I/exec";
+    
+    const MAX_PHOTOS = 36;
+    let photoCount = parseInt(localStorage.getItem('user_photo_count') || '0');
+    
+    const video = document.getElementById('webcam');
+    const canvas = document.getElementById('canvas');
+    const shutterBtn = document.getElementById('shutterBtn');
+    const statusMsg = document.getElementById('statusMsg');
+    const counterEl = document.getElementById('counter');
+    const flashEl = document.getElementById('flash');
+
+    function updateCounter() {
+      const remaining = MAX_PHOTOS - photoCount;
+      counterEl.innerText = `Sisa Foto: ${remaining}`;
+      if (remaining <= 0) {
+        shutterBtn.disabled = true;
+        statusMsg.innerText = "Kuota foto Anda sudah habis!";
+      }
+    }
+
+    async function initCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" } },
+          audio: false
+        });
+        video.srcObject = stream;
+        statusMsg.innerText = "Siap Mengambil Foto";
+      } catch (err) {
+        statusMsg.innerText = "Izinkan akses kamera pada browser Anda.";
+      }
+    }
+
+    async function takePhoto() {
+      if (photoCount >= MAX_PHOTOS) return;
+
+      flashEl.style.opacity = '1';
+      setTimeout(() => { flashEl.style.opacity = '0'; }, 150);
+
+      shutterBtn.disabled = true;
+      statusMsg.innerText = "Mengirim foto ke Google Drive...";
+
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      const base64Data = canvas.toDataURL('image/jpeg', 0.85);
+      const fileName = `IMG_${Date.now()}.jpg`;
+
+      try {
+        const response = await fetch(GAS_URL, {
+          method: 'POST',
+          body: JSON.stringify({ base64Data: base64Data, fileName: fileName })
+        });
+        const res = await response.json();
+
+        if (res.success) {
+          photoCount++;
+          localStorage.setItem('user_photo_count', photoCount);
+          updateCounter();
+          statusMsg.innerText = "Foto berhasil tersimpan di Drive!";
+        } else {
+          statusMsg.innerText = "Gagal unggah: " + res.error;
+        }
+      } catch (err) {
+        statusMsg.innerText = "Kesalahan koneksi.";
+      }
+
+      if (MAX_PHOTOS - photoCount > 0) shutterBtn.disabled = false;
+    }
+
+    window.onload = () => {
+      initCamera();
+      updateCounter();
+    };
+  </script>
+</body>
+</html>
